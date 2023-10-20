@@ -52,6 +52,8 @@
   ffmpeg, avconv, rtmpdump, flvstreamer
   and many more
 
+* Supports multiple push URLs returned by the on_publish request
+
 * Statistics in XML/XSL in machine- & human-
   readable form
 
@@ -138,7 +140,7 @@ rtmp_auto_push directive.
             application big {
                 live on;
 
-                # On every pusblished stream run this command (ffmpeg)
+                # On every published stream run this command (ffmpeg)
                 # with substitutions: $app/${app}, $name/${name} for application & stream name.
                 #
                 # This ffmpeg call receives stream from this application &
