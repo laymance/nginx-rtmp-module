@@ -1181,13 +1181,13 @@ ngx_rtmp_play_open_remote(ngx_rtmp_session_t *s, ngx_rtmp_play_t *v)
 static char *
 ngx_rtmp_play_url(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    ngx_rtmp_play_app_conf_t       *pacf = conf;
+    ngx_rtmp_play_app_conf_t   *pacf = conf;
 
-    ngx_rtmp_play_entry_t          *pe, **ppe;
-    ngx_str_t                       url;
-    ngx_url_t                      *u;
-    size_t                          add, n;
-    ngx_str_t                      *value;
+    ngx_rtmp_play_entry_t      *pe, **ppe;
+    ngx_str_t                   url;
+    ngx_url_t                  *u;
+    size_t                      add, n;
+    ngx_str_t                  *value;
 
     if (pacf->entries.nalloc == 0 &&
         ngx_array_init(&pacf->entries, cf->pool, 1, sizeof(void *)) != NGX_OK)
@@ -1211,7 +1211,42 @@ ngx_rtmp_play_url(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
         *ppe = pe;
 
-        if (ngx_strncasecmp(value[n].data, (u_char *) "http://", 7)) {
+        if (ngx_strncasecmp(value[n].data, (u_char *) "http://", 7) == 0 ||
+            ngx_strncasecmp(value[n].data, (u_char *) "https://", 8) == 0) {
+
+            /* http or https case */
+            u = ngx_pcalloc(cf->pool, sizeof(ngx_url_t));
+            if (u == NULL) {
+                return NGX_CONF_ERROR;
+            }
+
+            url = value[n];
+
+            if (ngx_strncasecmp(value[n].data, (u_char *) "http://", 7) == 0) {
+                add = sizeof("http://") - 1;
+                u->default_port = 80;  // Default port for HTTP
+            } else {
+                add = sizeof("https://") - 1;
+                u->default_port = 443; // Default port for HTTPS
+            }
+
+            url.data += add;
+            url.len -= add;
+            u->url.len = url.len;
+            u->url.data = url.data;
+            u->uri_part = 1;
+
+            if (ngx_parse_url(cf->pool, u) != NGX_OK) {
+                if (u->err) {
+                    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                            "%s in url \"%V\"", u->err, &u->url);
+                }
+                return NGX_CONF_ERROR;
+            }
+
+            pe->url = u;
+
+        } else {
 
             /* local file */
 
@@ -1221,38 +1256,7 @@ ngx_rtmp_play_url(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             }
 
             *pe->root = value[n];
-
-            continue;
         }
-
-        /* http case */
-
-        url = value[n];
-
-        add = sizeof("http://") - 1;
-
-        url.data += add;
-        url.len  -= add;
-
-        u = ngx_pcalloc(cf->pool, sizeof(ngx_url_t));
-        if (u == NULL) {
-            return NGX_CONF_ERROR;
-        }
-
-        u->url.len = url.len;
-        u->url.data = url.data;
-        u->default_port = 80;
-        u->uri_part = 1;
-
-        if (ngx_parse_url(cf->pool, u) != NGX_OK) {
-            if (u->err) {
-                ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                        "%s in url \"%V\"", u->err, &u->url);
-            }
-            return NGX_CONF_ERROR;
-        }
-
-        pe->url = u;
     }
 
     return NGX_CONF_OK;
