@@ -1073,9 +1073,9 @@ ngx_rtmp_notify_publish_handle(ngx_rtmp_session_t *s,
         ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
                     "notify: processing push '%V'", &u->url);
 
-        if (ngx_parse_url(s->connection->pool, u) != NGX_OK) {
+        if (ngx_parse_url(s->connection->pool, &u) != NGX_OK) {
             ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
-                        "notify: push failed '%V'", &local_name);
+                        "notify: push failed '%V'", &local_name, &u.host, u.err);
             return NGX_ERROR;
         }
 
@@ -1102,7 +1102,7 @@ ngx_rtmp_notify_publish_handle(ngx_rtmp_session_t *s,
 
         if (ngx_parse_url(s->connection->pool, u) != NGX_OK) {
             ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
-                        "notify: push failed '%V'", &local_name);
+                        "notify: push failed '%V'", &local_name, &u.host, u.err);
             return NGX_ERROR;
         }
 
