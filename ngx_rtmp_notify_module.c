@@ -1075,7 +1075,7 @@ ngx_rtmp_notify_publish_handle(ngx_rtmp_session_t *s,
 
         if (ngx_parse_url(s->connection->pool, u) != NGX_OK) {
             ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
-                        "notify: push failed '%V', error code: %i, error: %s", &local_name, u->err, ngx_strerror(u->err));
+                        "notify: push failed '%V', error code: %i, error: %s", &local_name, u->err, ngx_strerror(u->err, s->connection->log));
             return NGX_ERROR;
         }
 
@@ -1102,7 +1102,7 @@ ngx_rtmp_notify_publish_handle(ngx_rtmp_session_t *s,
 
         if (ngx_parse_url(s->connection->pool, u) != NGX_OK) {
             ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
-                        "notify: push failed '%V', error code: %i, error: %s", &local_name, u->err, ngx_strerror(u->err));
+                        "notify: push failed '%V', error code: %i, error: %s", &local_name, u->err, ngx_strerror(u->err, s->connection->log));
             return NGX_ERROR;
         }
 
