@@ -1001,6 +1001,56 @@ ngx_rtmp_notify_set_name(u_char *dst, size_t dst_len, u_char *src,
     *p = '\0';
 }
 
+static ngx_array_t *
+ngx_str_split(ngx_pool_t *pool, ngx_str_t *src, u_char delim) {
+    u_char *p, *last;
+    ngx_array_t *result;
+    ngx_str_t *current;
+    ngx_uint_t count = 1;
+
+    p = src->data;
+    last = p + src->len;
+
+    while (p < last) {
+        if (*p == delim) {
+            count++;
+        }
+        p++;
+    }
+
+    result = ngx_array_create(pool, count, sizeof(ngx_str_t));
+    if (result == NULL) {
+        return NULL;
+    }
+
+    p = src->data;
+    last = p + src->len;
+    current = ngx_array_push(result);
+
+    if (current == NULL) {
+        return NULL;
+    }
+
+    current->data = p;
+
+    while (p < last) {
+        if (*p == delim) {
+            current->len = p - current->data;
+            current = ngx_array_push(result);
+
+            if (current == NULL) {
+                return NULL;
+            }
+
+            current->data = p + 1;
+        }
+        p++;
+    }
+
+    current->len = p - current->data;
+
+    return result;
+}
 
 static ngx_int_t
 ngx_rtmp_notify_publish_handle(ngx_rtmp_session_t *s,
@@ -1008,10 +1058,7 @@ ngx_rtmp_notify_publish_handle(ngx_rtmp_session_t *s,
 {
     ngx_rtmp_publish_t         *v = arg;
     ngx_int_t                   rc;
-    ngx_str_t                   local_name;
-    ngx_rtmp_relay_target_t     target;
-    ngx_url_t                  *u;
-    ngx_rtmp_notify_app_conf_t *nacf;
+    ngx_str_t                   url_list;
     u_char                      name[NGX_RTMP_MAX_NAME];
 
     static ngx_str_t    location = ngx_string("location");
@@ -1044,41 +1091,77 @@ ngx_rtmp_notify_publish_handle(ngx_rtmp_session_t *s,
         goto next;
     }
 
-    /* push */
+    /* Push for multiple URLs */
+    ngx_url_t target_url;
+    url_list.data = name + 7;
+    url_list.len = rc - 7;
 
-    nacf = ngx_rtmp_get_module_app_conf(s, ngx_rtmp_notify_module);
-    if (nacf->relay_redirect) {
-        ngx_rtmp_notify_set_name(v->name, NGX_RTMP_MAX_NAME, name, (size_t) rc);
+    ngx_array_t *url_array = ngx_str_split(s->connection->pool, &url_list, ',');
+    if (url_array) {
+        ngx_str_t *url = url_array->elts;
+        ngx_uint_t i;
+
+        for (i = 0; i < url_array->nelts; i++) {
+            ngx_str_t *current_url = &url[i];
+            ngx_url_t u;
+            ngx_memzero(&u, sizeof(u));
+
+            u.url = *current_url;
+            u.default_port = 1935;
+            u.uri_part = 1;
+            u.no_resolve = 1; /* want IP here */
+
+            if (ngx_parse_url(s->connection->pool, &u) != NGX_OK) {
+                ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                            "notify: push failed for '%V'", current_url);
+                continue;
+            }
+
+            // Extract the stream key from the URL
+            ngx_str_t *stream_key = ngx_pcalloc(s->connection->pool, sizeof(ngx_str_t));
+
+            u_char *p = u.url.data + u.url.len;
+            while (p > u.url.data) {
+                p--;
+                if (*p == '/') {
+                    stream_key->data = ngx_pcalloc(s->connection->pool, u.url.data + u.url.len - p);
+                    if (stream_key->data == NULL) {
+                        // Handle memory allocation error
+                    }
+                    stream_key->len = u.url.data + u.url.len - p - 1; // Length of the stream key
+                    ngx_memcpy(stream_key->data, p + 1, stream_key->len); // Copy the stream key data
+                    break;
+                }
+            }
+
+            if (stream_key->len == 0) {
+                *stream_key = u.url; // Set the whole URL as the stream key if no '/' is found
+            }
+
+            ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
+                        "notify: push '%V' to '%V'", stream_key, &u.url);
+
+            ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
+                        "Stream Key: '%V'", &stream_key);
+
+            ngx_rtmp_relay_target_t target;
+            ngx_memzero(&target, sizeof(ngx_rtmp_relay_target_t));
+            ngx_memzero(&target_url, sizeof(ngx_url_t));
+            target_url.url = u.url;
+            target.url = target_url;
+
+            ngx_rtmp_relay_push(s, stream_key, &target);
+        }
+
+        ngx_array_destroy(url_array);
     }
 
-    ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
-                  "notify: push '%s' to '%*s'", v->name, rc, name);
-
-    local_name.data = v->name;
-    local_name.len = ngx_strlen(v->name);
-
-    ngx_memzero(&target, sizeof(target));
-
-    u = &target.url;
-    u->url = local_name;
-    u->url.data = name + 7;
-    u->url.len = rc - 7;
-    u->default_port = 1935;
-    u->uri_part = 1;
-    u->no_resolve = 1; /* want ip here */
-
-    if (ngx_parse_url(s->connection->pool, u) != NGX_OK) {
-        ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
-                      "notify: push failed '%V'", &local_name);
-        return NGX_ERROR;
-    }
-
-    ngx_rtmp_relay_push(s, &local_name, &target);
 
 next:
 
     return next_publish(s, v);
 }
+
 
 
 static ngx_int_t
