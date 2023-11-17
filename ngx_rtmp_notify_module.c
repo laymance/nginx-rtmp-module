@@ -1027,7 +1027,6 @@ ngx_rtmp_notify_publish_handle(ngx_rtmp_session_t *s,
     }
 
     /* HTTP 3xx */
-
     ngx_log_debug0(NGX_LOG_DEBUG_RTMP, s->connection->log, 0,
                    "notify: publish redirect received");
 
@@ -1045,7 +1044,6 @@ ngx_rtmp_notify_publish_handle(ngx_rtmp_session_t *s,
     }
 
     /* push */
-
     nacf = ngx_rtmp_get_module_app_conf(s, ngx_rtmp_notify_module);
     if (nacf->relay_redirect) {
         ngx_rtmp_notify_set_name(v->name, NGX_RTMP_MAX_NAME, name, (size_t) rc);
@@ -1057,37 +1055,54 @@ ngx_rtmp_notify_publish_handle(ngx_rtmp_session_t *s,
     local_name.data = v->name;
     local_name.len = ngx_strlen(v->name);
 
-    // Credit: https://github.com/musclewizard/nginx-rtmp-module/commit/0f24f6def1f20d1964a4b24bd05b56ff5e99eb61
     u_char *start = name;
-    u_char *next;
+    u_char *next = NULL;
 
-    while (start != NULL) {
-        next = (u_char *) ngx_strchr(start, ',');
-
+    while ((next = (u_char *)ngx_strchr(start, ',')) != NULL) {
         ngx_memzero(&target, sizeof(target));
         u = &target.url;
         u->url = local_name;
 
-        if (next) {
-            u->url.data = start + 7;
-            u->url.len = next - start - 7;
-            start = next + 1;
-        } else {
-            u->url.data = start + 7;
-            u->url.len = rc - (start - name) - 7;
-            start = NULL;
-        }
+        u->url.data = start;
+        u->url.len = next - start;
 
         u->default_port = 1935;
         u->uri_part = 1;
-        u->no_resolve = 1; /* want ip here */
+        u->no_resolve = 1; /* want IP here */
 
         ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
-                      "notify: processing push '%V'", &u->url);
+                    "notify: processing push '%V'", &u->url);
 
         if (ngx_parse_url(s->connection->pool, u) != NGX_OK) {
             ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
-                          "notify: push failed '%V'", &local_name);
+                        "notify: push failed '%V'", &local_name);
+            return NGX_ERROR;
+        }
+
+        ngx_rtmp_relay_push(s, &local_name, &target);
+
+        start = next + 1; // Move to the next URL
+    }
+
+    // Process the last push target (or the only one if there are no commas)
+    if (start && start < name + rc) {
+        ngx_memzero(&target, sizeof(target));
+        u = &target.url;
+        u->url = local_name;
+
+        u->url.data = start;
+        u->url.len = name + rc - start;
+
+        u->default_port = 1935;
+        u->uri_part = 1;
+        u->no_resolve = 1; /* want IP here */
+
+        ngx_log_error(NGX_LOG_ERR, s->connection->log, 0,
+                    "notify: processing push '%V'", &u->url);
+
+        if (ngx_parse_url(s->connection->pool, u) != NGX_OK) {
+            ngx_log_error(NGX_LOG_INFO, s->connection->log, 0,
+                        "notify: push failed '%V'", &local_name);
             return NGX_ERROR;
         }
 
